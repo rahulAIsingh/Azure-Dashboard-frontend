@@ -13,6 +13,7 @@ import { DailyCostChart } from "@/components/dashboard/DailyCostChart";
 import { TopResourcesChart } from "@/components/dashboard/TopResourcesChart";
 import { SubscriptionCostChart } from "@/components/dashboard/SubscriptionCostChart";
 import { ResourceGroupDrilldown } from "@/components/dashboard/ResourceGroupDrilldown";
+import { ServiceDrilldown } from "@/components/dashboard/ServiceDrilldown";
 import { BudgetAlerts, type BudgetAlert } from "@/components/dashboard/BudgetAlerts";
 import { CostAnomalies } from "@/components/dashboard/CostAnomalies";
 import { CostForecastChart } from "@/components/dashboard/CostForecastChart";
@@ -58,6 +59,7 @@ type OverviewSectionProps = {
   topResources?: TopResource[];
   costBySub?: SubscriptionCost[];
   filteredRecords?: CostRecord[];
+  allTimeRecords?: CostRecord[];
   isLoadingRG: boolean;
   isLoadingService: boolean;
   isLoadingDaily: boolean;
@@ -77,7 +79,7 @@ type OverviewSectionProps = {
 };
 
 const OverviewSection = memo(function OverviewSection({
-  costByRG, costByService, dailyCost, topResources, costBySub, filteredRecords,
+  costByRG, costByService, dailyCost, topResources, costBySub, filteredRecords, allTimeRecords,
   isLoadingRG, isLoadingService, isLoadingDaily, isLoadingTop, isLoadingSub, isLoadingRecords,
   errorRG, errorService, errorDaily,
   onSelectGroup, onCompare, refetchRG, refetchService, refetchDaily, onSelectSubscription, onSelectService
@@ -126,6 +128,7 @@ const Index = () => {
   const { filterParams, allTimeFilterParams } = filters;
 
   const [drilldownRG, setDrilldownRG] = useState<string | null>(null);
+  const [drilldownService, setDrilldownService] = useState<string | null>(null);
   const [compareMode, setCompareMode] = useState(false);
   const [activeSection, setActiveSection] = useState("overview");
 
@@ -164,7 +167,7 @@ const Index = () => {
         return (
           <OverviewSection
             costByRG={costByRG} costByService={costByService} dailyCost={dailyCost}
-            topResources={topResources} costBySub={costBySub} filteredRecords={filteredRecords}
+            topResources={topResources} costBySub={costBySub} filteredRecords={filteredRecords} allTimeRecords={allTimeRecords}
             isLoadingRG={isLoadingRG} isLoadingService={isLoadingService} isLoadingDaily={isLoadingDaily}
             isLoadingTop={isLoadingTop} isLoadingSub={isLoadingSub} isLoadingRecords={isLoadingRecords}
             errorRG={errorRG} errorService={errorService} errorDaily={errorDaily}
@@ -271,22 +274,28 @@ const Index = () => {
       ) : drilldownRG ? (
         <motion.div key="drilldown" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}>
           {isLoadingRecords ? <ChartLoading height="h-[500px]" /> :
-            filteredRecords ? <ResourceGroupDrilldown resourceGroup={drilldownRG} records={filteredRecords} onBack={() => setDrilldownRG(null)} /> :
+            filteredRecords ? <ResourceGroupDrilldown resourceGroup={drilldownRG} records={filteredRecords} allRecords={allTimeRecords} onBack={() => setDrilldownRG(null)} /> :
+              <EmptyState message="No records found" description="Unable to load cost records for drilldown." />}
+        </motion.div>
+      ) : drilldownService ? (
+        <motion.div key="drilldown-service" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}>
+          {isLoadingRecords ? <ChartLoading height="h-[500px]" /> :
+            filteredRecords ? <ServiceDrilldown service={drilldownService} records={filteredRecords} allRecords={allTimeRecords} onBack={() => setDrilldownService(null)} /> :
               <EmptyState message="No records found" description="Unable to load cost records for drilldown." />}
         </motion.div>
       ) : (
         <motion.div key={activeSection} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} className="space-y-4 sm:space-y-6">
           {summary && (
             <WelcomeBanner
-              userName={currentUser.name.split(" ")[0]}
+              userName={currentUser?.name?.split(" ")[0] || "User"}
               totalCostThisMonth={summary.totalCostThisMonth}
-              onNavigate={(section) => { setActiveSection(section); setDrilldownRG(null); setCompareMode(false); }}
+              onNavigate={(section) => { setActiveSection(section); setDrilldownRG(null); setDrilldownService(null); setCompareMode(false); }}
               onExport={handleExport}
             />
           )}
 
           <div className="flex items-center gap-3 flex-wrap">
-            <Tabs value={activeSection} onValueChange={(v) => { setActiveSection(v); setDrilldownRG(null); setCompareMode(false); }}>
+            <Tabs value={activeSection} onValueChange={(v) => { setActiveSection(v); setDrilldownRG(null); setDrilldownService(null); setCompareMode(false); }}>
               <TabsList>
                 {sectionTabs.map((tab) => (
                   <TabsTrigger key={tab.id} value={tab.id} className="text-xs sm:text-sm">{tab.label}</TabsTrigger>

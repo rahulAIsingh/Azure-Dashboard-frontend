@@ -38,7 +38,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter basename={import.meta.env.BASE_URL}>
           <FilterProvider>
             <AuthProvider>
               <Routes>
@@ -56,11 +56,11 @@ const App = () => (
                 <Route path="/finops-insights" element={<FinOpsInsightsPage />} />
                 <Route
                   path="/users"
-                  element={<ProtectedRoute allowedRoles={["admin"]}><UsersPage /></ProtectedRoute>}
+                  element={<ProtectedRoute allowedRoles={["super admin", "admin"]}><UsersPage /></ProtectedRoute>}
                 />
                 <Route
                   path="/settings"
-                  element={<ProtectedRoute allowedRoles={["admin"]}><SettingsPage /></ProtectedRoute>}
+                  element={<ProtectedRoute allowedRoles={["super admin"]}><SettingsPage /></ProtectedRoute>}
                 />
               </Route>
               <Route path="*" element={<NotFound />} />

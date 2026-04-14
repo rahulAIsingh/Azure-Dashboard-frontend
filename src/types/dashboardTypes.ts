@@ -97,7 +97,7 @@ export interface CreateBudgetDto {
   alertAtPercent: number;
 }
 
-export type UserRole = "admin" | "viewer" | "editor";
+export type UserRole = "super admin" | "admin" | "viewer" | "editor";
 
 export interface AccessScope {
   type: "subscription" | "resourceGroup";

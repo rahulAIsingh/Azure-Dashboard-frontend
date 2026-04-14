@@ -1,6 +1,6 @@
 import type { AccessScope } from "@/types/dashboardTypes";
 
-export type UserRole = "admin" | "viewer" | "editor";
+export type UserRole = "super admin" | "admin" | "viewer" | "editor";
 
 export interface AppUser {
   id: string;
@@ -21,7 +21,7 @@ export const defaultUsers: AppUser[] = [
     name: "Admin User",
     email: "admin@company.com",
     password: "admin123",
-    role: "admin",
+    role: "super admin",
     assignedResourceGroups: [],
     scopes: [],
     department: "IT Operations",
@@ -30,13 +30,15 @@ export const defaultUsers: AppUser[] = [
 ];
 
 export const roleColors: Record<UserRole, string> = {
+  "super admin": "bg-yellow-500/10 text-yellow-500 border-yellow-500/30",
   admin: "bg-primary/10 text-primary border-primary/30",
   editor: "bg-chart-4/10 text-chart-4 border-chart-4/30",
   viewer: "bg-accent/10 text-accent border-accent/30",
 };
 
 export const roleDescriptions: Record<UserRole, string> = {
-  admin: "Full access to all resource groups and settings",
+  "super admin": "Full access including system settings and imports",
+  admin: "Full access to all resource groups and user management",
   editor: "Can view and modify assigned scopes",
   viewer: "Read-only access to assigned scopes",
 };

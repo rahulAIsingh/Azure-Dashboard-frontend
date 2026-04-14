@@ -15,6 +15,7 @@ import { exportToCsv } from "@/lib/csvExport";
 interface ResourceGroupDrilldownProps {
   resourceGroup: string;
   records: CostRecord[];
+  allRecords?: CostRecord[];
   onBack: () => void;
 }
 
@@ -33,7 +34,7 @@ interface ResourceDetail {
   costPercentage: number;
 }
 
-export function ResourceGroupDrilldown({ resourceGroup, records, onBack }: ResourceGroupDrilldownProps) {
+export function ResourceGroupDrilldown({ resourceGroup, records, allRecords, onBack }: ResourceGroupDrilldownProps) {
   const { theme } = useTheme();
   const ct = useMemo(() => getChartTheme(), [theme]);
   const [expandedResource, setExpandedResource] = useState<string | null>(null);
@@ -100,41 +101,64 @@ export function ResourceGroupDrilldown({ resourceGroup, records, onBack }: Resou
 
 
 
-  // Month-over-month comparison
+  // Month-over-Month Comparison
   const monthComparison = useMemo(() => {
-    const now = new Date();
-    const thisMonthStart = startOfMonth(now);
-    const lastMonthStart = startOfMonth(subMonths(now, 1));
-    const lastMonthEnd = endOfMonth(subMonths(now, 1));
+    // Determine the reference month based on the provided records (latest date)
+    const latestRecordDate = records.reduce((latest, r) => {
+      const d = parseISO(r.usageDate);
+      return d > latest ? d : latest;
+    }, new Date(0));
+    
+    const referenceDate = latestRecordDate.getTime() === 0 ? new Date() : latestRecordDate;
 
-    const thisMonthCost = rgRecords
-      .filter((r) => parseISO(r.usageDate) >= thisMonthStart)
+    const thisMonthStart = startOfMonth(referenceDate);
+    const lastMonthStart = startOfMonth(subMonths(referenceDate, 1));
+    const lastMonthEnd = endOfMonth(subMonths(referenceDate, 1));
+
+    // Use allRecords if available to ensure we have last month's data even if current filter restricts it
+    const sourceRecords = allRecords 
+      ? allRecords.filter(r => r.resourceGroup?.toLowerCase() === rgLower) 
+      : rgRecords;
+
+    const thisMonthCost = sourceRecords
+      .filter((r) => parseISO(r.usageDate) >= thisMonthStart && parseISO(r.usageDate) <= endOfMonth(referenceDate))
       .reduce((s, r) => s + r.cost, 0);
-    const lastMonthCost = rgRecords
+      
+    const lastMonthCost = sourceRecords
       .filter((r) => isWithinInterval(parseISO(r.usageDate), { start: lastMonthStart, end: lastMonthEnd }))
       .reduce((s, r) => s + r.cost, 0);
 
-    const daysThisMonth = Math.max(1, Math.ceil((now.getTime() - thisMonthStart.getTime()) / 86400000));
-    const daysInLastMonth = Math.max(1, Math.ceil((lastMonthEnd.getTime() - lastMonthStart.getTime()) / 86400000));
-    const projectedThisMonth = (thisMonthCost / daysThisMonth) * 30;
+    const now = new Date();
+    const isCurrentMonth = thisMonthStart.getMonth() === now.getMonth() && thisMonthStart.getFullYear() === now.getFullYear();
+    const daysElapsed = isCurrentMonth 
+        ? Math.max(1, Math.ceil((now.getTime() - thisMonthStart.getTime()) / 86400000))
+        : Math.ceil((endOfMonth(referenceDate).getTime() - thisMonthStart.getTime()) / 86400000) + 1;
+
+    const daysInMonth = Math.ceil((endOfMonth(referenceDate).getTime() - thisMonthStart.getTime()) / 86400000) + 1;
+
+    // Only project if it's the current incomplete month
+    const projectedThisMonth = isCurrentMonth 
+        ? (thisMonthCost / daysElapsed) * daysInMonth 
+        : thisMonthCost;
+
     const change = lastMonthCost > 0 ? ((projectedThisMonth - lastMonthCost) / lastMonthCost) * 100 : 0;
     const diff = projectedThisMonth - lastMonthCost;
 
     // Per-service breakdown
     const serviceMap = new Map<string, { thisMonth: number; lastMonth: number }>();
-    rgRecords.forEach((r) => {
+    sourceRecords.forEach((r) => {
       const d = parseISO(r.usageDate);
       if (!serviceMap.has(r.serviceName)) serviceMap.set(r.serviceName, { thisMonth: 0, lastMonth: 0 });
       const entry = serviceMap.get(r.serviceName)!;
-      if (d >= thisMonthStart) entry.thisMonth += r.cost;
+      if (d >= thisMonthStart && d <= endOfMonth(referenceDate)) entry.thisMonth += r.cost;
       else if (isWithinInterval(d, { start: lastMonthStart, end: lastMonthEnd })) entry.lastMonth += r.cost;
     });
 
     const serviceBreakdown = Array.from(serviceMap.entries()).map(([service, costs]) => {
-      const projected = (costs.thisMonth / daysThisMonth) * 30;
+      const projected = isCurrentMonth ? (costs.thisMonth / daysElapsed) * daysInMonth : costs.thisMonth;
       const svcChange = costs.lastMonth > 0 ? ((projected - costs.lastMonth) / costs.lastMonth) * 100 : 0;
       return { service, thisMonth: Math.round(projected * 100) / 100, lastMonth: Math.round(costs.lastMonth * 100) / 100, change: Math.round(svcChange * 10) / 10 };
-    }).sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+    }).filter(s => s.thisMonth > 0 || s.lastMonth > 0).sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
 
     return {
       thisMonthActual: Math.round(thisMonthCost * 100) / 100,
@@ -142,10 +166,14 @@ export function ResourceGroupDrilldown({ resourceGroup, records, onBack }: Resou
       projected: Math.round(projectedThisMonth * 100) / 100,
       change: Math.round(change * 10) / 10,
       diff: Math.round(diff * 100) / 100,
-      daysElapsed: daysThisMonth,
+      daysElapsed,
+      daysInMonth,
+      isCurrentMonth,
       serviceBreakdown,
+      thisMonthLabel: format(thisMonthStart, "MMM yyyy"),
+      lastMonthLabel: format(lastMonthStart, "MMM yyyy"),
     };
-  }, [rgRecords]);
+  }, [records, allRecords, rgRecords, rgLower]);
 
   const toggleResource = (name: string) => {
     setExpandedResource((prev) => (prev === name ? null : name));
@@ -205,7 +233,7 @@ export function ResourceGroupDrilldown({ resourceGroup, records, onBack }: Resou
         <div className={`rounded-lg p-4 border ${monthComparison.change > 2 ? "border-destructive/30 bg-destructive/5" : monthComparison.change < -2 ? "border-kpi-up/30 bg-kpi-up/5" : "border-border bg-secondary/20"}`}>
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
-              <p className="text-xs text-muted-foreground">Projected this month vs last month</p>
+              <p className="text-xs text-muted-foreground">{monthComparison.isCurrentMonth ? `Projected ${monthComparison.thisMonthLabel} vs ${monthComparison.lastMonthLabel}` : `${monthComparison.thisMonthLabel} vs ${monthComparison.lastMonthLabel}`}</p>
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-2xl font-bold text-foreground">{formatINR(monthComparison.projected)}</span>
                 <span className="text-sm text-muted-foreground">vs {formatINR(monthComparison.lastMonthTotal)}</span>
@@ -216,7 +244,22 @@ export function ResourceGroupDrilldown({ resourceGroup, records, onBack }: Resou
               <p className="text-[10px]">{monthComparison.diff > 0 ? "+" : ""}{formatINR(Math.abs(monthComparison.diff))}</p>
             </div>
           </div>
-          <p className="text-[10px] text-muted-foreground mt-2">Based on {monthComparison.daysElapsed} days elapsed · Actual spend so far: {formatINR(monthComparison.thisMonthActual)}</p>
+          <div className="mt-3 pt-3 border-t border-border/50 text-sm">
+            {monthComparison.change > 0 ? (
+              <p className="text-foreground">
+                You spent <span className="font-bold text-destructive">{formatINR(Math.abs(monthComparison.diff))} ({monthComparison.change}%) more</span> this month compared to {monthComparison.lastMonthLabel}.
+              </p>
+            ) : monthComparison.change < 0 ? (
+              <p className="text-foreground">
+                You spent <span className="font-bold text-kpi-up">{formatINR(Math.abs(monthComparison.diff))} ({-monthComparison.change}%) less</span> this month compared to {monthComparison.lastMonthLabel}.
+              </p>
+            ) : (
+              <p className="text-foreground">Your spend is exactly the same as {monthComparison.lastMonthLabel}.</p>
+            )}
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {monthComparison.isCurrentMonth ? `Based on ${monthComparison.daysElapsed} days elapsed (Actual: ${formatINR(monthComparison.thisMonthActual)})` : `Based on complete billing data for ${monthComparison.thisMonthLabel}`}
+            </p>
+          </div>
         </div>
 
         {monthComparison.serviceBreakdown.length > 0 && (

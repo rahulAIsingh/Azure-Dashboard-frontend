@@ -28,6 +28,7 @@ interface AuthContextType {
   addUser: (user: AppUser) => Promise<void>;
   removeUser: (id: string) => Promise<void>;
   updateUser: (user: AppUser) => Promise<void>;
+  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -43,6 +44,7 @@ const STORAGE_KEY = "finops_auth_user";
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [roles, setRoles] = useState<{ id: string, name: string }[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -82,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const init = async () => {
       if (!isAuthenticated) return;
       
+      setIsLoading(true);
       try {
         // Load roles first for mapping
         const rolesData = await usersApi.getRoles();
@@ -92,7 +95,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
            id: u.id,
            name: u.name,
            email: u.email,
-           role: (u as any).role?.name?.toLowerCase() || "viewer",
+           role: typeof u.role === 'string' 
+             ? (u.role as string).toLowerCase() as UserRole 
+             : ((u as any).role?.name?.toLowerCase() || "viewer") as UserRole,
            department: u.department,
            assignedResourceGroups: u.assignedResourceGroups || [],
            scopes: u.scopes || [],
@@ -100,6 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } as AppUser)));
       } catch (err) {
         console.error("Failed to load data", err);
+      } finally {
+        setIsLoading(false);
       }
     };
     init();
@@ -135,8 +142,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const addUser = useCallback(async (user: AppUser) => {
      try {
-       const roleId = roles.find(r => r.name.toLowerCase() === user.role.toLowerCase())?.id;
-       if (!roleId) throw new Error(`Role ${user.role} not found`);
+       let currentRoles = roles;
+       let roleId = currentRoles.find(r => r.name.toLowerCase() === user.role.toLowerCase())?.id;
+       
+       if (!roleId) {
+         currentRoles = await usersApi.getRoles();
+         setRoles(currentRoles);
+         roleId = currentRoles.find(r => r.name.toLowerCase() === user.role.toLowerCase())?.id;
+       }
+       if (!roleId) throw new Error(`Role '${user.role}' not found on the server.`);
 
        const dto = {
          user: {
@@ -176,8 +190,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateUser = useCallback(async (user: AppUser) => {
     try {
-      const roleId = roles.find(r => r.name.toLowerCase() === user.role.toLowerCase())?.id;
-      if (!roleId) throw new Error(`Role ${user.role} not found`);
+       let currentRoles = roles;
+       let roleId = currentRoles.find(r => r.name.toLowerCase() === user.role.toLowerCase())?.id;
+       
+       if (!roleId) {
+         currentRoles = await usersApi.getRoles();
+         setRoles(currentRoles);
+         roleId = currentRoles.find(r => r.name.toLowerCase() === user.role.toLowerCase())?.id;
+       }
+       if (!roleId) throw new Error(`Role '${user.role}' not found on the server.`);
 
       const dto = {
         user: {
@@ -199,13 +220,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (currentUser && user.id === currentUser.id) setCurrentUser(user);
     } catch (err) {
       console.error("Failed to update user", err);
+      throw err;
     }
   }, [currentUser, roles]);
 
   // Safe accessor — fallback to first default if not authenticated (guards downstream)
   const safeUser = currentUser || defaultUsers[0];
 
-  const hasFullAccess = safeUser.role === "admin" || (
+  const hasFullAccess = safeUser.role === "admin" || safeUser.role === "super admin" || (
     safeUser.assignedResourceGroups.length === 0 &&
     (!safeUser.scopes || safeUser.scopes.length === 0)
   );
@@ -239,7 +261,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     addUser,
     removeUser,
     updateUser,
-  }), [safeUser, users, isAuthenticated, allowedSubscriptions, allowedResourceGroups, hasFullAccess, login, logout, addUser, removeUser, updateUser]);
+    isLoading,
+  }), [safeUser, users, isAuthenticated, allowedSubscriptions, allowedResourceGroups, hasFullAccess, login, logout, addUser, removeUser, updateUser, isLoading]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

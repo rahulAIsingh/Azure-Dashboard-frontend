@@ -10,6 +10,9 @@ import {
   MapPin,
   Package2,
   TrendingUp,
+  TrendingDown,
+  Minus,
+  Activity,
 } from "lucide-react";
 import {
   Area,
@@ -25,7 +28,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, startOfMonth, subMonths, endOfMonth, isWithinInterval } from "date-fns";
 import { useTheme } from "@/components/ThemeProvider";
 import { getChartTheme, CHART_COLORS } from "@/lib/chartTheme";
 import { formatINR, formatINRShort } from "@/lib/currency";
@@ -38,6 +41,7 @@ import type { CostRecord } from "@/types/dashboardTypes";
 interface ServiceDrilldownProps {
   service: string;
   records: CostRecord[];
+  allRecords?: CostRecord[];
   onBack: () => void;
 }
 
@@ -58,7 +62,7 @@ const fallbackPlan = (plan?: string | null) => plan?.trim() || "Standard / Unspe
 const fallbackLocation = (location?: string | null) => location?.trim() || "Unspecified";
 const fallbackGroup = (resourceGroup?: string | null) => resourceGroup?.trim() || "Unassigned";
 
-export function ServiceDrilldown({ service, records, onBack }: ServiceDrilldownProps) {
+export function ServiceDrilldown({ service, records, allRecords, onBack }: ServiceDrilldownProps) {
   const { theme } = useTheme();
   const chartTheme = useMemo(() => getChartTheme(), [theme]);
   const [expandedResource, setExpandedResource] = useState<string | null>(null);
@@ -178,6 +182,80 @@ export function ServiceDrilldown({ service, records, onBack }: ServiceDrilldownP
       .sort((a, b) => b.totalCost - a.totalCost);
   }, [serviceRecords]);
 
+  // Month-over-Month Comparison
+  const monthComparison = useMemo(() => {
+    // Determine the reference month based on latest date in records
+    const latestRecordDate = records.reduce((latest, r) => {
+      const d = parseISO(r.usageDate);
+      return d > latest ? d : latest;
+    }, new Date(0));
+    
+    const referenceDate = latestRecordDate.getTime() === 0 ? new Date() : latestRecordDate;
+
+    const thisMonthStart = startOfMonth(referenceDate);
+    const lastMonthStart = startOfMonth(subMonths(referenceDate, 1));
+    const lastMonthEnd = endOfMonth(subMonths(referenceDate, 1));
+
+    // Use allRecords for history peek-back
+    const sourceRecords = allRecords 
+      ? allRecords.filter(r => normalizeKey(r.serviceName) === serviceKey) 
+      : serviceRecords;
+
+    const thisMonthCost = sourceRecords
+      .filter((r) => parseISO(r.usageDate) >= thisMonthStart && parseISO(r.usageDate) <= endOfMonth(referenceDate))
+      .reduce((s, r) => s + r.cost, 0);
+      
+    const lastMonthCost = sourceRecords
+      .filter((r) => isWithinInterval(parseISO(r.usageDate), { start: lastMonthStart, end: lastMonthEnd }))
+      .reduce((s, r) => s + r.cost, 0);
+
+    const now = new Date();
+    const isCurrentMonth = thisMonthStart.getMonth() === now.getMonth() && thisMonthStart.getFullYear() === now.getFullYear();
+    const daysElapsed = isCurrentMonth 
+        ? Math.max(1, Math.ceil((now.getTime() - thisMonthStart.getTime()) / 86400000))
+        : Math.ceil((endOfMonth(referenceDate).getTime() - thisMonthStart.getTime()) / 86400000) + 1;
+
+    const daysInMonth = Math.ceil((endOfMonth(referenceDate).getTime() - thisMonthStart.getTime()) / 86400000) + 1;
+
+    const projectedThisMonth = isCurrentMonth 
+        ? (thisMonthCost / daysElapsed) * daysInMonth 
+        : thisMonthCost;
+
+    const change = lastMonthCost > 0 ? ((projectedThisMonth - lastMonthCost) / lastMonthCost) * 100 : 0;
+    const diff = projectedThisMonth - lastMonthCost;
+
+    // RG breakdown for this service comparison
+    const rgMap = new Map<string, { thisMonth: number; lastMonth: number }>();
+    sourceRecords.forEach((r) => {
+      const d = parseISO(r.usageDate);
+      const rgName = fallbackGroup(r.resourceGroup);
+      if (!rgMap.has(rgName)) rgMap.set(rgName, { thisMonth: 0, lastMonth: 0 });
+      const entry = rgMap.get(rgName)!;
+      if (d >= thisMonthStart && d <= endOfMonth(referenceDate)) entry.thisMonth += r.cost;
+      else if (isWithinInterval(d, { start: lastMonthStart, end: lastMonthEnd })) entry.lastMonth += r.cost;
+    });
+
+    const rgBreakdown = Array.from(rgMap.entries()).map(([rg, costs]) => {
+      const projected = isCurrentMonth ? (costs.thisMonth / daysElapsed) * daysInMonth : costs.thisMonth;
+      const svcChange = costs.lastMonth > 0 ? ((projected - costs.lastMonth) / costs.lastMonth) * 100 : 0;
+      return { rg, thisMonth: Math.round(projected * 100) / 100, lastMonth: Math.round(costs.lastMonth * 100) / 100, change: Math.round(svcChange * 10) / 10 };
+    }).filter(s => s.thisMonth > 0 || s.lastMonth > 0).sort((a, b) => Math.abs(b.change) - Math.abs(a.change)).slice(0, 6);
+
+    return {
+      thisMonthActual: Math.round(thisMonthCost * 100) / 100,
+      lastMonthTotal: Math.round(lastMonthCost * 100) / 100,
+      projected: Math.round(projectedThisMonth * 100) / 100,
+      change: Math.round(change * 10) / 10,
+      diff: Math.round(diff * 100) / 100,
+      daysElapsed,
+      daysInMonth,
+      isCurrentMonth,
+      rgBreakdown,
+      thisMonthLabel: format(thisMonthStart, "MMM yyyy"),
+      lastMonthLabel: format(lastMonthStart, "MMM yyyy"),
+    };
+  }, [records, allRecords, serviceRecords, serviceKey]);
+
   const heroInsight = useMemo(() => {
     const topPlan = planBreakdown[0];
     const topGroup = resourceGroupBreakdown[0];
@@ -237,6 +315,70 @@ export function ServiceDrilldown({ service, records, onBack }: ServiceDrilldownP
           </div>
         </div>
       </div>
+
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="rounded-3xl border border-border/60 bg-card/80 p-5 shadow-sm space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          {monthComparison.change > 0 ? (
+            <TrendingUp className="h-4 w-4 text-destructive" />
+          ) : monthComparison.change < 0 ? (
+            <TrendingDown className="h-4 w-4 text-kpi-up" />
+          ) : (
+            <Minus className="h-4 w-4 text-muted-foreground" />
+          )}
+          <h3 className="text-sm font-semibold text-muted-foreground">Month-over-Month Comparison</h3>
+        </div>
+
+        <div className={`rounded-2xl p-4 border ${monthComparison.change > 2 ? "border-destructive/30 bg-destructive/5" : monthComparison.change < -2 ? "border-kpi-up/30 bg-kpi-up/5" : "border-border bg-secondary/20"}`}>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <p className="text-xs text-muted-foreground">{monthComparison.isCurrentMonth ? `Projected ${monthComparison.thisMonthLabel} vs ${monthComparison.lastMonthLabel}` : `${monthComparison.thisMonthLabel} vs ${monthComparison.lastMonthLabel}`}</p>
+              <div className="flex items-baseline gap-2 mt-1">
+                <span className="text-2xl font-bold text-foreground">{formatINR(monthComparison.projected)}</span>
+                <span className="text-sm text-muted-foreground">vs {formatINR(monthComparison.lastMonthTotal)}</span>
+              </div>
+            </div>
+            <div className={`text-right px-3 py-2 rounded-xl ${monthComparison.change > 2 ? "bg-destructive/10 text-destructive" : monthComparison.change < -2 ? "bg-kpi-up/10 text-kpi-up" : "bg-secondary text-muted-foreground"}`}>
+              <p className="text-xl font-bold">{monthComparison.change > 0 ? "+" : ""}{monthComparison.change}%</p>
+              <p className="text-[10px]">{monthComparison.diff > 0 ? "+" : ""}{formatINR(Math.abs(monthComparison.diff))}</p>
+            </div>
+          </div>
+          <div className="mt-3 pt-3 border-t border-border/50 text-sm">
+            {monthComparison.change > 0 ? (
+              <p className="text-foreground">
+                You spent <span className="font-bold text-destructive">{formatINR(Math.abs(monthComparison.diff))} ({monthComparison.change}%) more</span> this month compared to {monthComparison.lastMonthLabel}.
+              </p>
+            ) : monthComparison.change < 0 ? (
+              <p className="text-foreground">
+                You spent <span className="font-bold text-kpi-up">{formatINR(Math.abs(monthComparison.diff))} ({-monthComparison.change}%) less</span> this month compared to {monthComparison.lastMonthLabel}.
+              </p>
+            ) : (
+              <p className="text-foreground">Your spend is exactly the same as {monthComparison.lastMonthLabel}.</p>
+            )}
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {monthComparison.isCurrentMonth ? `Based on ${monthComparison.daysElapsed} days elapsed (Actual: ${formatINR(monthComparison.thisMonthActual)})` : `Based on complete billing data for ${monthComparison.thisMonthLabel}`}
+            </p>
+          </div>
+        </div>
+
+        {monthComparison.rgBreakdown.length > 0 && (
+          <div>
+            <p className="text-xs text-muted-foreground font-medium mb-2">Change by Resource Group</p>
+            <div className="space-y-2">
+              {monthComparison.rgBreakdown.map((item) => (
+                <div key={item.rg} className="flex items-center justify-between text-xs py-1.5 px-2 rounded-md hover:bg-secondary/20 transition-colors">
+                  <span className="text-foreground font-medium truncate max-w-[150px]">{item.rg}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-muted-foreground">{formatINR(item.lastMonth, 0)} → {formatINR(item.thisMonth, 0)}</span>
+                    <span className={`font-semibold min-w-[60px] text-right ${item.change > 2 ? "text-destructive" : item.change < -2 ? "text-kpi-up" : "text-muted-foreground"}`}>
+                      {item.change > 0 ? "+" : ""}{item.change}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </motion.div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[

@@ -4,6 +4,7 @@ import { EmptyState, ErrorState, ChartLoading } from "@/components/dashboard/Loa
 import { ServiceDrilldown } from "@/components/dashboard/ServiceDrilldown";
 import { useDashboardFilters } from "@/hooks/useDashboardFilters";
 import { useFilteredRecords } from "@/hooks/useFilteredRecords";
+import { getDateRangeValues } from "@/contexts/FilterContext";
 
 export default function ServiceDetailPage() {
   const { service } = useParams<{ service: string }>();
@@ -19,6 +20,18 @@ export default function ServiceDetailPage() {
   const { data: records, isLoading, error, refetch } = useFilteredRecords(
     serviceName ? effectiveFilters : {}
   );
+
+  const allTimeFilterParams = useMemo(() => {
+    const [startDate, endDate] = getDateRangeValues("365");
+    return {
+      subscription: filterParams.subscription !== "All" ? filterParams.subscription : undefined,
+      service: serviceName || undefined,
+      startDate,
+      endDate,
+    };
+  }, [filterParams.subscription, serviceName]);
+
+  const { data: allTimeRecords } = useFilteredRecords(allTimeFilterParams);
 
   if (!serviceName) {
     navigate("/");
@@ -55,7 +68,12 @@ export default function ServiceDetailPage() {
 
   return (
     <div className="p-3 sm:p-4 md:p-6">
-      <ServiceDrilldown service={serviceName} records={records} onBack={() => navigate(-1)} />
+      <ServiceDrilldown 
+        service={serviceName} 
+        records={records} 
+        allRecords={allTimeRecords}
+        onBack={() => navigate(-1)} 
+      />
     </div>
   );
 }

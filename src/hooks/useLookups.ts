@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { dashboardApi } from "@/services/api";
 import type { LookupData } from "@/types/dashboardTypes";
 
-export function useLookups(subscription?: string) {
+export function useLookups(subscription?: string, startDate?: string, endDate?: string) {
     const [data, setData] = useState<LookupData>({
         subscriptions: [],
         resourceGroups: [],
@@ -18,7 +18,7 @@ export function useLookups(subscription?: string) {
         async function fetchLookups() {
             try {
                 setIsLoading(true);
-                const lookups = await dashboardApi.getLookups(subscription);
+                const lookups = await dashboardApi.getLookups(subscription, startDate, endDate);
                 if (!isCurrent) return;
                 setData(lookups);
                 setError(null);
@@ -38,7 +38,7 @@ export function useLookups(subscription?: string) {
         return () => {
             isCurrent = false;
         };
-    }, [subscription]);
+    }, [subscription, startDate, endDate]);
 
     return { data, isLoading, error };
 }

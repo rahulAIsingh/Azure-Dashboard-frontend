@@ -4,6 +4,7 @@ import { ResourceGroupDrilldown } from "@/components/dashboard/ResourceGroupDril
 import { ChartLoading, ErrorState, EmptyState } from "@/components/dashboard/LoadingState";
 import { useDashboardFilters } from "@/hooks/useDashboardFilters";
 import { useFilteredRecords } from "@/hooks/useFilteredRecords";
+import { getDateRangeValues } from "@/contexts/FilterContext";
 
 export default function ResourceGroupDetailPage() {
   const { resourceGroup } = useParams<{ resourceGroup: string }>();
@@ -18,6 +19,18 @@ export default function ResourceGroupDetailPage() {
   const { data: records, isLoading, error, refetch } = useFilteredRecords(
     rgName ? effectiveFilters : {}
   );
+
+  const allTimeFilterParams = useMemo(() => {
+    const [startDate, endDate] = getDateRangeValues("365");
+    return {
+      subscription: filterParams.subscription !== "All" ? filterParams.subscription : undefined,
+      resourceGroup: rgName || undefined,
+      startDate,
+      endDate,
+    };
+  }, [filterParams.subscription, rgName]);
+
+  const { data: allTimeRecords } = useFilteredRecords(allTimeFilterParams);
 
   if (!rgName) {
     navigate("/");
@@ -62,6 +75,7 @@ export default function ResourceGroupDetailPage() {
       <ResourceGroupDrilldown
         resourceGroup={rgName}
         records={records}
+        allRecords={allTimeRecords}
         onBack={() => navigate("/")}
       />
     </div>

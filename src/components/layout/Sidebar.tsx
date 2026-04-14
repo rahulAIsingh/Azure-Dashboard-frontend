@@ -24,11 +24,11 @@ const navItems: NavItem[] = [
   { label: "Dashboard", path: "/", icon: LayoutDashboard },
   { label: "Cost Explorer", path: "/cost-explorer", icon: Search },
   { label: "Resource Groups", path: "/resource-groups", icon: Layers },
-  { label: "Subscriptions", path: "/subscriptions", icon: CreditCard, roles: ["admin", "editor"] },
-  { label: "Budgets", path: "/budgets", icon: Target, roles: ["admin", "editor"] },
-  { label: "FinOps Insights", path: "/finops-insights", icon: Lightbulb, roles: ["admin", "editor"] },
-  { label: "Users", path: "/users", icon: Users, roles: ["admin"] },
-  { label: "Settings", path: "/settings", icon: Settings, roles: ["admin"] },
+  { label: "Subscriptions", path: "/subscriptions", icon: CreditCard, roles: ["super admin", "admin", "editor"] },
+  { label: "Budgets", path: "/budgets", icon: Target, roles: ["super admin", "admin", "editor"] },
+  { label: "FinOps Insights", path: "/finops-insights", icon: Lightbulb, roles: ["super admin", "admin", "editor"] },
+  { label: "Users", path: "/users", icon: Users, roles: ["super admin", "admin"] },
+  { label: "Settings", path: "/settings", icon: Settings, roles: ["super admin"] },
 ];
 
 export function LayoutSidebar() {

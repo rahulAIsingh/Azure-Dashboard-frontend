@@ -186,9 +186,14 @@ export const dashboardApi = {
     return request<CostRecord[]>(`/cost/records${filterQuery(filters)}`);
   },
 
-  getLookups: async (subscription?: string): Promise<LookupData> => {
+  getLookups: async (subscription?: string, startDate?: string, endDate?: string): Promise<LookupData> => {
     if (USE_MOCK) return { subscriptions: [], resourceGroups: [], services: [], locations: [] };
-    const query = subscription && subscription !== "All" ? `?subscription=${encodeURIComponent(subscription)}` : "";
+    const params: Record<string, string | undefined> = {};
+    if (subscription && subscription !== "All") params.subscription = subscription;
+    if (startDate) params.startDate = startDate;
+    if (endDate) params.endDate = endDate;
+    
+    const query = buildQuery(params);
     const data = await request<any>(`/cost/lookups${query}`);
     return {
       subscriptions: data.subscriptions || [],
@@ -222,10 +227,10 @@ export const usersApi = {
 // ---- Budget Alerts API ----
 
 export const budgetApi = {
-  getAll: () => request<BudgetAlertDto[]>("/budgetalerts"),
-  create: (data: CreateBudgetDto) => request<BudgetAlertDto>("/budgetalerts", { method: "POST", body: JSON.stringify(data) }),
-  delete: (id: string) => request<void>(`/budgetalerts/${id}`, { method: "DELETE" }),
-  getStatus: (id: string) => request<BudgetAlertDto>(`/budgetalerts/${id}/status`),
+  getAll: () => request<any[]>("/Budget"),
+  create: (data: any) => request<any>("/Budget", { method: "POST", body: JSON.stringify(data) }),
+  delete: (id: string) => request<void>(`/Budget/${id}`, { method: "DELETE" }),
+  update: (id: string, data: any) => request<any>(`/Budget/${id}`, { method: "PUT", body: JSON.stringify(data) }),
 };
 
 export const settingsApi = {

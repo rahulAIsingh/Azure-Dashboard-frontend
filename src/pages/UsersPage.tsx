@@ -8,15 +8,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { UserModal } from "@/components/users/UserModal";
 import { Search, Plus, Pencil, Trash2, UserX } from "lucide-react";
 import { format } from "date-fns";
 
 export default function UsersPage() {
-  const { users, removeUser, updateUser } = useAuth();
+  const { users, removeUser, updateUser, isLoading } = useAuth();
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
+  const [userToDelete, setUserToDelete] = useState<AppUser | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const filtered = useMemo(() => {
@@ -33,7 +44,7 @@ export default function UsersPage() {
   const openEdit = (u: AppUser) => { setEditingUser(u); setIsModalOpen(true); };
 
   const scopeLabel = (u: AppUser) => {
-    if (u.role === "admin") return "Full Access";
+    if (u.role === "super admin" || u.role === "admin") return "Full Access";
     const scopes = (u.scopes || []).map((s) => s.value);
     return scopes.length > 0 ? scopes.join(", ") : "No restrictions";
   };
@@ -61,6 +72,7 @@ export default function UsersPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Roles</SelectItem>
+            <SelectItem value="super admin">Super Admin</SelectItem>
             <SelectItem value="admin">Admin</SelectItem>
             <SelectItem value="editor">Editor</SelectItem>
             <SelectItem value="viewer">Viewer</SelectItem>
@@ -82,37 +94,47 @@ export default function UsersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((u) => (
-              <TableRow key={u.id}>
-                <TableCell className="font-medium text-foreground">{u.name}</TableCell>
-                <TableCell className="text-muted-foreground text-sm">{u.email}</TableCell>
-                <TableCell>
-                  <Badge variant="outline" className={`text-xs capitalize ${roleColors[u.role]}`}>{u.role}</Badge>
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{scopeLabel(u)}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">{u.department || "—"}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {u.lastActive ? format(new Date(u.lastActive), "MMM dd, yyyy") : "—"}
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(u)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => removeUser(u.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-            {filtered.length === 0 && (
+            {isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                  <UserX className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  No users found
+                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground italic">
+                  Loading users...
                 </TableCell>
               </TableRow>
+            ) : (
+              <>
+                {filtered.map((u) => (
+                  <TableRow key={u.id}>
+                    <TableCell className="font-medium text-foreground">{u.name}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{u.email}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={`text-xs capitalize ${roleColors[u.role]}`}>{u.role}</Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{scopeLabel(u)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{u.department || "—"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {u.lastActive ? format(new Date(u.lastActive), "MMM dd, yyyy") : "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(u)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setUserToDelete(u)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {filtered.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      <UserX className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      No users found
+                    </TableCell>
+                  </TableRow>
+                )}
+              </>
             )}
           </TableBody>
         </Table>
@@ -123,6 +145,30 @@ export default function UsersPage() {
         onOpenChange={setIsModalOpen}
         user={editingUser}
       />
+
+      <AlertDialog open={!!userToDelete} onOpenChange={(open) => !open && setUserToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the user <strong>{userToDelete?.name}</strong> ({userToDelete?.email}). 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                if (userToDelete) removeUser(userToDelete.id);
+                setUserToDelete(null);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete User
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

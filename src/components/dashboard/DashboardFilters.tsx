@@ -74,7 +74,8 @@ export function DashboardFilters({
     customDateRange?.[0] || new Date()
   );
 
-  const { data: lookups } = useLookups(subscription);
+  const [startDateStr, endDateStr] = useMemo(() => getDateRangeValues(dateRange, customDateRange), [dateRange, customDateRange]);
+  const { data: lookups } = useLookups(subscription, startDateStr, endDateStr);
 
   // Sync tempRange when customDateRange changes externally
   useEffect(() => {

@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Plus, X } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 interface UserModalProps {
   open: boolean;
@@ -21,6 +22,7 @@ interface UserModalProps {
 export function UserModal({ open, onOpenChange, user }: UserModalProps) {
   const { addUser, updateUser } = useAuth();
   const { data: lookups } = useLookups();
+  const { toast } = useToast();
   const allSubscriptions = lookups.subscriptions;
   const allResourceGroups = lookups.resourceGroups;
 
@@ -68,7 +70,7 @@ export function UserModal({ open, onOpenChange, user }: UserModalProps) {
       id: user?.id || `user-${Date.now()}`,
       name: name.trim(),
       email: email.trim(),
-      password: password.trim() || email.trim(), // Default to email as password if empty
+      password: password.trim() ? password.trim() : (user ? undefined : email.trim()), // Default to email for new users, leave undefined for existing if empty
       role,
       department: department.trim() || undefined,
       assignedResourceGroups: scopes.filter((s) => s.type === "resourceGroup").map((s) => s.value),
@@ -83,8 +85,12 @@ export function UserModal({ open, onOpenChange, user }: UserModalProps) {
         await addUser(userData);
       }
       onOpenChange(false);
-    } catch (err) {
-      alert("Failed to save user. Please check if the backend is running.");
+    } catch (err: any) {
+      toast({
+        title: "Failed to save user",
+        description: err.message || "Please check if the backend is running.",
+        variant: "destructive",
+      });
       console.error(err);
     }
   };
@@ -116,6 +122,7 @@ export function UserModal({ open, onOpenChange, user }: UserModalProps) {
               <Select value={role} onValueChange={(v) => setRole(v as UserRole)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="super admin">Super Admin</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                   <SelectItem value="editor">Editor</SelectItem>
                   <SelectItem value="viewer">Viewer</SelectItem>

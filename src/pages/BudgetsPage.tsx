@@ -1,11 +1,21 @@
-import { memo, useState, useMemo, useCallback } from "react";
+import { memo, useState, useMemo, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Target, Plus, Trash2 } from "lucide-react";
+import { Target, Plus, Trash2, Loader2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,6 +23,8 @@ import { useDashboardFilters } from "@/hooks/useDashboardFilters";
 import { useFilteredRecords } from "@/hooks/useFilteredRecords";
 import { useLookups } from "@/hooks/useLookups";
 import { formatINR } from "@/lib/currency";
+import { budgetApi } from "@/services/api";
+import { useToast } from "@/hooks/use-toast";
 
 interface Budget {
   id: string;
@@ -22,21 +34,36 @@ interface Budget {
   alertAt: number;
 }
 
-const defaultBudgets: Budget[] = [
-  { id: "1", name: "Production Limit", resourceGroup: "Prod-RG", monthlyBudget: 5000, alertAt: 80 },
-  { id: "2", name: "Dev Limit", resourceGroup: "Dev-RG", monthlyBudget: 800, alertAt: 90 },
-  { id: "3", name: "Data Limit", resourceGroup: "Data-RG", monthlyBudget: 3000, alertAt: 75 },
-  { id: "4", name: "ML Budget", resourceGroup: "ML-RG", monthlyBudget: 2000, alertAt: 85 },
-];
-
 const BudgetsPage = () => {
   const { filterParams } = useDashboardFilters();
   const { data: records } = useFilteredRecords(filterParams);
   const { data: lookups } = useLookups(filterParams.subscription);
+  const { toast } = useToast();
+  
   const allResourceGroups = lookups.resourceGroups;
-  const [budgets, setBudgets] = useState<Budget[]>(defaultBudgets);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newBudget, setNewBudget] = useState({ name: "", resourceGroup: "", monthlyBudget: 0, alertAt: 80 });
+  const [budgetToDelete, setBudgetToDelete] = useState<Budget | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    setIsLoading(true);
+    budgetApi.getAll()
+      .then(data => {
+        if (mounted) setBudgets(data);
+      })
+      .catch(err => {
+        console.error("Failed to load budgets", err);
+        toast({ title: "Failed to load budgets", description: err.message, variant: "destructive" });
+      })
+      .finally(() => {
+        if (mounted) setIsLoading(false);
+      });
+    return () => { mounted = false; };
+  }, [toast]);
 
   const getCost = useCallback((rg: string) => {
     if (!records) return 0;
@@ -52,14 +79,36 @@ const BudgetsPage = () => {
       return { ...b, currentSpend, remaining, pct, status };
     }), [budgets, getCost]);
 
-  const handleAdd = useCallback(() => {
-    if (!newBudget.name || !newBudget.resourceGroup || !newBudget.monthlyBudget) return;
-    setBudgets((prev) => [...prev, { ...newBudget, id: crypto.randomUUID() }]);
-    setNewBudget({ name: "", resourceGroup: "", monthlyBudget: 0, alertAt: 80 });
-    setDialogOpen(false);
-  }, [newBudget]);
+  const handleAdd = useCallback(async () => {
+    if (!newBudget.name || !newBudget.resourceGroup || !newBudget.monthlyBudget) {
+        toast({ title: "Validation Error", description: "Please fill in all details.", variant: "destructive" });
+        return;
+    }
+    
+    try {
+        const created = await budgetApi.create(newBudget);
+        setBudgets((prev) => [...prev, created]);
+        setNewBudget({ name: "", resourceGroup: "", monthlyBudget: 0, alertAt: 80 });
+        setDialogOpen(false);
+        toast({ title: "Budget created", description: "The budget has been saved successfully." });
+    } catch (err: any) {
+        console.error("Failed to post budget", err);
+        toast({ title: "Creation Failed", description: err.message || "Unknown error occurred.", variant: "destructive" });
+    }
+  }, [newBudget, toast]);
 
-  const handleRemove = useCallback((id: string) => setBudgets((prev) => prev.filter((b) => b.id !== id)), []);
+  const handleRemove = useCallback(async () => {
+    if (!budgetToDelete) return;
+    try {
+        await budgetApi.delete(budgetToDelete.id);
+        setBudgets((prev) => prev.filter((b) => b.id !== budgetToDelete.id));
+        setBudgetToDelete(null);
+        toast({ title: "Budget deleted", description: "The budget has been removed." });
+    } catch (err: any) {
+        console.error("Failed to delete budget", err);
+        toast({ title: "Deletion Failed", description: err.message || "Unknown error occurred.", variant: "destructive" });
+    }
+  }, [budgetToDelete, toast]);
 
   const statusBadge = (status: string) => {
     if (status === "exceeded") return <Badge variant="destructive">Exceeded</Badge>;
@@ -122,7 +171,20 @@ const BudgetsPage = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {tableData.map((row) => (
+            {isLoading ? (
+               <TableRow>
+                 <TableCell colSpan={8} className="text-center py-8 text-muted-foreground italic">
+                   <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 opacity-50" />
+                   Loading budgets...
+                 </TableCell>
+               </TableRow>
+             ) : tableData.length === 0 ? (
+               <TableRow>
+                 <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                   No budgets configured.
+                 </TableCell>
+               </TableRow>
+             ) : tableData.map((row) => (
               <TableRow key={row.id}>
                 <TableCell className="font-medium text-foreground">{row.name}</TableCell>
                 <TableCell className="text-muted-foreground">{row.resourceGroup}</TableCell>
@@ -135,7 +197,7 @@ const BudgetsPage = () => {
                 </TableCell>
                 <TableCell>{statusBadge(row.status)}</TableCell>
                 <TableCell>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleRemove(row.id)}>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setBudgetToDelete(row)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </TableCell>
@@ -144,6 +206,28 @@ const BudgetsPage = () => {
           </TableBody>
         </Table>
       </div>
+      
+      <AlertDialog open={!!budgetToDelete} onOpenChange={(open) => !open && setBudgetToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the budget <strong>{budgetToDelete?.name}</strong>. 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleRemove}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Budget
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </motion.div>
   );
 };
